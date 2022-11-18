@@ -1,0 +1,347 @@
+#include <WiFi.h>                              // library for wifi
+#include <PubSubClient.h>                      // library for MQTT
+#include <LiquidCrystal_I2C.h>
+LiquidCrystal_I2C lcd(0x27, 20, 4);
+
+//----------------------- credentials of IBM Accounts ------------------------------
+
+#define ORG "ax0tzw"                        // IBM organisation id
+#define DEVICE_TYPE "smart-waste"                // Device type mentioned in ibm watson iot platform
+#define DEVICE_ID "92131910"              // Device ID mentioned in ibm watson iot platform
+#define TOKEN "921319106133"          // Token
+
+//----------------------- customise above values -----------------------------------------------------
+
+char server[] = ORG ".messaging.internetofthings.ibmcloud.com";               // server name
+char publishTopic[] = "iot-2/evt/data/fmt/json";                              // topic name and type of event perform and format in which data to be send
+char topic[] = "iot-2/cmd/led/fmt/String";                                    // cmd Represent type and command is test format of strings
+char authMethod[] = "use-token-auth";                                         // authentication method
+char token[] = TOKEN;
+char clientId[] = "d:" ORG ":" DEVICE_TYPE ":" DEVICE_ID;                    //Client id
+
+//---------------------------------------------------------------------------------------------------------------------
+
+WiFiClient wifiClient;                                                      // creating instance for wificlient
+PubSubClient client(server, 1883, wifiClient); 
+
+#define ECHO_PIN 12
+#define TRIG_PIN 13
+float dist;
+
+void setup() 
+{
+  Serial.begin(115200);
+  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  //pir pin
+  pinMode(4, INPUT);
+
+  //ledpins
+  pinMode(23, OUTPUT);
+  pinMode(2, OUTPUT);
+  pinMode(4, OUTPUT);
+  pinMode(15, OUTPUT);
+  
+
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(1, 0);
+  lcd.print("");
+  wifiConnect();
+}
+
+float readcmCM() 
+{
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+  int duration = pulseIn(ECHO_PIN, HIGH);
+  return duration * 0.034 / 2;
+}
+
+void loop()
+ {
+
+  lcd.clear();
+
+  publishTopic;
+  delay(500);
+  if (!client.loop()) 
+    {
+      wifiConnect();                                    // function call to connect to IBM
+    }
+}
+
+
+/* --------------------------------retrieving to cloud-----------------------------------------------------*/
+
+void wifiConnect()
+{
+  Serial.print("Connecting to "); 
+  Serial.print("Wifi");
+  WiFi.begin("Wokwi-GUEST", "", 6);
+  while (WiFi.status() != WL_CONNECTED)
+    {
+      delay(500);
+      Serial.print(".");
+    }
+  Serial.print("WiFi connected, IP address: "); 
+  Serial.println(WiFi.localIP());
+}
+
+void mqttConnect() 
+  {
+    if (!client.connected()) 
+      {
+        Serial.print("Reconnecting MQTT client to "); 
+        Serial.println(server);
+        while (!client.connect(clientId, authMethod, token))
+          {
+            Serial.print(".");
+            delay(500);
+          }
+        initManagedDevice();
+        Serial.println();
+      }
+  }
+void initManagedDevice() 
+  {
+    if (client.subscribe(topic)) 
+      {
+        Serial.println("IBM subscribe to cmd OK");
+      }
+    else 
+      {
+        Serial.println("subscribe to cmd FAILED");
+      }
+  }
+void publishData()
+{
+  float cm = readcmCM();
+
+  if(digitalRead(34))                                 //pir motion detection
+  {
+    Serial.println("Motion Detected");
+    Serial.println("Lid Opened");
+    digitalWrite(15, HIGH);
+   
+  }
+  else
+  {
+    digitalWrite(15, LOW);
+  }
+  
+ if(digitalRead(34)== true)
+ {
+  if(cm <= 100)                                                //Bin level detection
+  {
+    digitalWrite(2, HIGH);
+    Serial.println("High Alert!!!,Trash bin is about to be full");
+    Serial.println("Lid Closed");
+    lcd.print("Full! Don't use");
+    delay(2000);
+    lcd.clear();
+    digitalWrite(4, LOW);
+    digitalWrite(23, LOW);
+  }
+  else if(cm > 150 && cm < 250)
+  {
+    digitalWrite(4, HIGH);
+    Serial.println("Warning!!,Trash is about to cross 50% of bin level");
+    digitalWrite(2, LOW);
+    digitalWrite(23, LOW);
+  }
+  else if(cm > 250 && cm <=400)
+  {
+    digitalWrite(23, HIGH);
+    Serial.println("Bin is available");
+    digitalWrite(2,LOW);
+    digitalWrite(4, LOW);
+  }
+    delay(10000);
+    Serial.println("Lid Closed");
+ }
+ else
+ {
+   Serial.println("No motion detected");
+ }    
+  
+
+
+
+
+  if(cm <= 100)
+{
+digitalWrite(21,HIGH);
+String payload = "{\"HighAlert !Trash bin is about to be full\":\"";
+payload += cm;
+payload += "\" }";
+Serial.print("\n");
+Serial.print("Sending payload: ");
+Serial.println(payload);
+
+if (client.publish(publishTopic, (char*) payload.c_str()))    
+ // if data is uploaded to cloud successfully,prints publish ok else prints publish failed
+{
+Serial.println("Publish OK");
+}
+}
+///////////////////////////
+
+if(cm > 150 && cm < 250)
+{
+digitalWrite(22,HIGH);
+String payload = "{\"warning! Trash is about to cross 50% of bin level\":\"";
+payload += cm;
+payload += "\" }";
+Serial.print("\n");
+Serial.print("Sending distance: ");
+Serial.println(cm);
+if(client.publish(publishTopic, (char*) payload.c_str()))
+{
+Serial.println("Publish OK");
+}
+else 
+{
+Serial.println("Publish FAILED");
+}
+} 
+///////////////////////////
+
+if(cm > 250 && cm <=400)
+{
+digitalWrite(21,HIGH);
+String payload = "{\"Bin is available\":\"";
+payload += cm;
+payload += "\" }";
+Serial.print("\n");
+Serial.print("Sending payload: ");
+Serial.println(payload);
+
+if (client.publish(publishTopic, (char*) payload.c_str()))    
+ // if data is uploaded to cloud successfully,prints publish ok else prints publish failed
+{
+Serial.println("Publish OK");
+}
+}
+/////////////////////////////
+
+  float inches = (cm / 2.54);                                      //print on lcd
+  lcd.setCursor(0,0);
+  lcd.print("Inches");
+  lcd.setCursor(4,0);
+  lcd.setCursor(12,0);
+  lcd.print("cm");
+  lcd.setCursor(1,1);
+  lcd.print(inches, 1);
+  lcd.setCursor(11,1);
+  lcd.print(cm, 1);
+  lcd.setCursor(14,1);
+  delay(1000);
+  lcd.clear();
+}
+
+
+{
+  "version": 1,
+  "author": "6133_ MUTHUMARI.M",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "wokwi-esp32-devkit-v1", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "wokwi-led", "id": "led1", "top": 142, "left": 298.3, "attrs": { "color": "blue" } },
+    {
+      "type": "wokwi-led",
+      "id": "led2",
+      "top": 82.66,
+      "left": 297.78,
+      "attrs": { "color": "red" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led3",
+      "top": 27.97,
+      "left": 295.15,
+      "attrs": { "color": "yellow" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led4",
+      "top": -40.94,
+      "left": 286.7,
+      "attrs": { "color": "green" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r1",
+      "top": 17.07,
+      "left": 199.99,
+      "attrs": { "value": "1000" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r2",
+      "top": 71.98,
+      "left": 201.56,
+      "attrs": { "value": "1000" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r3",
+      "top": 184.37,
+      "left": 200.58,
+      "attrs": { "value": "1000" }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r4",
+      "top": 129.15,
+      "left": 202.01,
+      "attrs": { "value": "1000" }
+    },
+    {
+      "type": "wokwi-lcd1602",
+      "id": "lcd1",
+      "top": 248.35,
+      "left": 250.61,
+      "attrs": { "pins": "i2c" }
+    },
+    { "type": "wokwi-hc-sr04", "id": "ultrasonic1", "top": 13.25, "left": -257.78, "attrs": {} },
+    {
+      "type": "wokwi-pir-motion-sensor",
+      "id": "pir1",
+      "top": -124.15,
+      "left": -92.64,
+      "attrs": {}
+    }
+  ],
+  "connections": [
+    [ "esp:TX0", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX0", "$serialMonitor:TX", "", [] ],
+    [ "led4:A", "r1:2", "green", [ "v0" ] ],
+    [ "led3:A", "r2:2", "yellow", [ "v0" ] ],
+    [ "led2:A", "r4:2", "red", [ "v0" ] ],
+    [ "led1:A", "r3:2", "blue", [ "v0" ] ],
+    [ "r1:1", "esp:D23", "green", [ "v0" ] ],
+    [ "r2:1", "esp:D4", "yellow", [ "v0" ] ],
+    [ "r4:1", "esp:D2", "red", [ "v0" ] ],
+    [ "r3:1", "esp:D15", "blue", [ "v0" ] ],
+    [ "esp:GND.1", "led4:C", "black", [ "h28.96", "v-140.96", "h3.65" ] ],
+    [ "led3:C", "esp:GND.1", "black", [ "v-5.05", "h-179.89", "v80.21" ] ],
+    [ "led2:C", "esp:GND.1", "black", [ "v-0.68", "h-181.79", "v23.33" ] ],
+    [ "led1:C", "esp:GND.1", "black", [ "v-8.98", "h-183.77", "v-25.52" ] ],
+    [ "lcd1:SCL", "esp:D22", "cyan", [ "h-98.83", "v-10.59" ] ],
+    [ "lcd1:SDA", "esp:D21", "magenta", [ "h-111.22", "v-29.53" ] ],
+    [ "lcd1:VCC", "esp:VIN", "red", [ "h-294.25", "v-129.41" ] ],
+    [ "lcd1:GND", "esp:GND.1", "black", [ "h-127.27", "v-129.39" ] ],
+    [ "ultrasonic1:GND", "esp:GND.2", "black", [ "v0" ] ],
+    [ "ultrasonic1:VCC", "esp:VIN", "red", [ "v0" ] ],
+    [ "ultrasonic1:ECHO", "esp:D12", "purple", [ "v0" ] ],
+    [ "ultrasonic1:TRIG", "esp:D13", "yellow", [ "v0" ] ],
+    [ "pir1:GND", "esp:GND.2", "black", [ "v0" ] ],
+    [ "pir1:OUT", "esp:D34", "green", [ "v0" ] ],
+    [ "pir1:VCC", "esp:3V3", "red", [ "v264.05", "h175.06", "v-70.73" ] ]
+  ]
+}
